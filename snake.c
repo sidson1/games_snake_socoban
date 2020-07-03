@@ -6,7 +6,7 @@
 #include <assert.h>
 #include <signal.h>
 
-// Playfield size
+
 #define WIDTH 80
 #define HEIGHT 25
 
@@ -14,23 +14,22 @@ typedef enum {
 	UP, DOWN, LEFT, RIGHT
 } direction;
 
-// Coordinates + direction
+
 typedef struct DirectedPoint {
 	int row, col;
 	direction dir;
 } DirectedPoint;
 
-// Struct that holds info about one snake.
-// It is perfectly possible to implement several snakes (several players)
+
 typedef struct Snake {
-	DirectedPoint head; // Both head and tail must be directed to move snake
+	DirectedPoint head; 
 	DirectedPoint tail;
 	direction new_dir;
-	unsigned long long length; // Current snake length. Maybe not needed
-	long long lengthbuf; // If > 0, snake grows via lengthbuf--, length++
+	unsigned long long length; 
+	long long lengthbuf; 
 } Snake;
 
-// Actual playfield size without walls
+
 enum { width = WIDTH - 2,
        height = HEIGHT - 3 };
 
@@ -39,11 +38,11 @@ enum { KEY_ARROWU = 0x415b1b,
        KEY_ARROWR = 0x435b1b,
        KEY_ARROWL = 0x445b1b };
 
-enum { BILLION = 1000000000 }; // Just a shortcut
-enum { FOOD_RARITY = 512, // Read as 'One food per FOOD_RARITY empty cells'
-       LVLUP_LENGTH = 50 }; // Level up each time this much length was gained
+enum { BILLION = 1000000000 }; 
+enum { FOOD_RARITY = 512, 
+       LVLUP_LENGTH = 50 }; 
 
-sig_atomic_t run = 1; // For SIGINT handling
+sig_atomic_t run = 1; 
 
 struct termios saved_attributes;
 
@@ -51,41 +50,32 @@ unsigned char playfield[height][width];
 int food_cnt = 0;
 int level = 1;
 
-// A function to put terminal back into the mode it had before game was
-// launched. Setting stdout back to buffered mode seems to be not needed.
 void reset_input_mode(void){
 	printf("\x1b[?25h");
 	tcsetattr(STDIN_FILENO, TCSANOW, &saved_attributes);
 	system("clear");
 }
 
-// Simple SIGINT handler to make sure the program exits normally on ^C (so
-// reset_input_mode is properly called)
+
 void sighandler(int sig){
 	run = 0;
 	signal(sig, sighandler);
 }
 
-// A function to put terminal into non-conventional mode so keypresses can be
-// read directly, right away and without echoing.
-// Taken from some GNU guide mostly.
+
 void set_terminal_mode(void){
 	struct termios tattr;
 
 	setbuf(stdout, NULL);
-	/* Make sure stdin is a terminal. */
+	
 	if (!isatty(STDIN_FILENO)){
 		fprintf(stderr, "Not a terminal.\n");
 		exit(EXIT_FAILURE);
 	}
 
-	/* Save the terminal attributes so we can restore them later. */
-	tcgetattr(STDIN_FILENO, &saved_attributes);
-
-	/* Set the non-conventional mode and disable echo so game controls can be
-	 * implemented. */
+	
 	tcgetattr(STDIN_FILENO, &tattr);
-	tattr.c_lflag &= ~(ICANON|ECHO); /* Clear ICANON and ECHO. */
+	tattr.c_lflag &= ~(ICANON|ECHO); 
 	tattr.c_cc[VMIN] = 0;
 	tattr.c_cc[VTIME] = 0;
 	tcsetattr(STDIN_FILENO, TCSAFLUSH, &tattr);
@@ -95,11 +85,7 @@ void set_terminal_mode(void){
 	atexit(reset_input_mode);
 }
 
-// These are four turn functions, very similar, but for different directions.
-// They return 1 if requested turn is meaningful (for example, if snake moves
-// UP, turns LEFT, RIGHT and UP are meaningful. LEFT and RIGHT will be actual
-// turns, UP will be just speeding up. DOWN is not meaningful, so if snake
-// moves UP, turn_down will return 0.)
+
 int turn_up(Snake *snake){
 	DirectedPoint *head = &(snake->head);
 	char bodyseg;
@@ -113,7 +99,7 @@ int turn_up(Snake *snake){
 		bodyseg = '/';
 		break;
 	case DOWN:
-		success = 0; // Fall through intended
+		success = 0; 
 	default:
 		goto ret;
 	}
@@ -138,7 +124,7 @@ int turn_down(Snake *snake){
 		bodyseg = '\\';
 		break;
 	case UP:
-		success = 0; // Fall through intended
+		success = 0; 
 	default:
 		goto ret;
 	}
@@ -163,7 +149,7 @@ int turn_left(Snake *snake){
 		bodyseg = '/';
 		break;
 	case RIGHT:
-		success = 0; // Fall through intended
+		success = 0; 
 	default:
 		goto ret;
 	}
@@ -188,7 +174,7 @@ int turn_right(Snake *snake){
 		bodyseg = '\\';
 		break;
 	case LEFT:
-		success = 0; // Fall through intended
+		success = 0; 
 	default:
 		goto ret;
 	}
@@ -200,8 +186,7 @@ int turn_right(Snake *snake){
 	return success;
 }
 
-// A function to do different things based on key that was pressed.
-// Returns 1 if snake needs to be sped up on this tick
+
 int process_key(Snake *snake){
 	int c = 0;
 	int snake_moved = 0;
@@ -223,21 +208,18 @@ int process_key(Snake *snake){
 		}
 	}
 
-	// TODO: do something about several keys pressed at once.
-	// And generally 'normal key' processing
+	
 	return snake_moved;
 }
 
-// A function to initialize the playfield. Playfield preparation is for now
-// simple space filling
+
 void init_playfield(void){
 	for (int j = 0; j < height; j++){
 		for(int i = 0; i < width; playfield[j][i++] = ' ');
 	}
 }
 
-// A function to initialize a snake. For now starting coordinates are fixed,
-// but if the game will ever be extended for multiplayer, this must change
+
 void init_snake(Snake *snake){
 	playfield[height / 2][width / 2] = '<';
 
@@ -252,29 +234,28 @@ void init_snake(Snake *snake){
 	snake->new_dir = RIGHT;
 
 	snake->length = 1;
-	snake->lengthbuf = 4; // Total starting length - 5
+	snake->lengthbuf = 4; 
 }
 
-// A function to redraw playfield on screen with all changes at the end of the
-// game move (tick)
-void redraw_all(Snake *snake){
-	printf("\x1b[H"); // Move cursor to 0,0 position
 
-	for(int i = width + 2; i; i--){ // Draw top wall
+void redraw_all(Snake *snake){
+	printf("\x1b[H"); 
+
+	for(int i = width + 2; i; i--){ 
 		putchar('#');
 	}
 	putchar('\n');
 
-	for(int j = 0; j < height; j++){ // Draw field
-		putchar('#'); // And side walls
+	for(int j = 0; j < height; j++){ 
+		putchar('#'); 
 		for(int i = 0; i < width; i++){
 			putchar(playfield[j][i]);
 		}
-		putchar('#'); // Side wall
+		putchar('#'); 
 		putchar('\n');
 	}
 
-	for(int i = width + 2; i; i--){ // Draw bottom wall
+	for(int i = width + 2; i; i--){ 
 		putchar('#');
 	}
 	putchar('\n');
@@ -282,20 +263,19 @@ void redraw_all(Snake *snake){
 	printf("Length: %5lld\tLevel: %3d", snake->length, level);
 }
 
-// A function to redraw playfield on screen without any changes, but with
-// different mouth character for snake. Simple-ish eating animation.
+
 void redraw_animation(Snake *snake){
-	// Move cursor to where snake's head is
+	
 	printf("\x1b[%d;%dH", snake->head.row + 2, snake->head.col + 2);
 
-	if(snake->head.dir == UP || // Draw appropriate closed mouth
+	if(snake->head.dir == UP || 
 	   snake->head.dir == DOWN){
 		putchar('|');
 	} else {
 		putchar('-');
 	}
 
-	// Move cursor to where snake's tail is
+	
 	printf("\x1b[%d;%dH", snake->tail.row + 2, snake->tail.col + 2);
 
 	if(playfield[snake->tail.row][snake->tail.col] != '-' &&
@@ -309,21 +289,13 @@ void redraw_animation(Snake *snake){
 	}
 }
 
-// A function to move a snake. Direction of head is used to determine the next
-// head position and the character to use for 'mouth-open' head.
-// Direction of tail is used to properly move tail DirectedPoint to the next
-// body segment. Turns are handled by analyzing two factors: the direction tail
-// had before turn and the turn character. For example, turn character '/'
-// would mean that snake turned RIGHT if it was moving UP, turned DOWN if it
-// was moving LEFT, turned UP if it was moving RIGHT, etc.
-// Also events (like hitting a wall, snake body or food) are handled here.
+
 void move_snake(Snake *snake){
 	DirectedPoint *head = &(snake->head);
 	DirectedPoint *tail = &(snake->tail);
 	unsigned char headchar;
 
-	// If snake turned, new body segment was handled by turn function. If it
-	// didn't turn, it has to be handled here
+	
 	if(head->dir == snake->new_dir){
 		if(head->dir == UP || head->dir == DOWN){
 			playfield[head->row][head->col] = '|';
@@ -334,8 +306,7 @@ void move_snake(Snake *snake){
 		head->dir = snake->new_dir;
 	}
 
-	// Move head DirectedPoint and choose appropriate character to represent head
-	// facing current direction
+	
 	switch(head->dir){
 	case UP:
 		head->row--;
@@ -354,10 +325,10 @@ void move_snake(Snake *snake){
 		headchar = '<';
 		break;
 	default:
-		assert(0); // This should never happen
+		assert(0); 
 	}
 
-	// Wall hit event
+	
 	if(head->col < 0 ||
 	   head->col >= width ||
 	   head->row < 0 ||
@@ -370,12 +341,12 @@ void move_snake(Snake *snake){
 		exit(0);
 	}
 
-	// Food eat event
+	
 	if(playfield[head->row][head->col] == '@'){
 		snake->lengthbuf++;
 		food_cnt--;
 	}
-	// Snake body hit event. Everything that's not food or space is snake
+	
 	else if(playfield[head->row][head->col] != ' '){
 		reset_input_mode();
 		system("clear");
@@ -385,18 +356,16 @@ void move_snake(Snake *snake){
 		exit(0);
 	}
 
-	// Print head only after all possible gameover-events checked
+	
 	playfield[head->row][head->col] = headchar;
 
-	// Move tail only if lengthbuf is 0. Otherwise, do not move tail - snake
-	// grows 1 segment
+	
 	if(snake->lengthbuf){
 		snake->lengthbuf--;
 		snake->length++;
 	} else {
 		playfield[tail->row][tail->col] = ' ';
 
-		// Move tail DirectedPoint
 		switch(tail->dir){
 		case UP:
 			tail->row--;
@@ -411,16 +380,16 @@ void move_snake(Snake *snake){
 			tail->col++;
 			break;
 		default:
-			assert(0); // This should never happen
+			assert(0); 
 		}
 
-		// Determine new tail direction
+		
 		switch(playfield[tail->row][tail->col]){
-		case '-': // Next body segment is straight - direction doesn't change
-		case '|': // Fall through intended
+		case '-': 
+		case '|': 
 			break;
-		case '/': // Next body segment is turn type 1
-			switch(tail->dir){ // New direction depends on old one
+		case '/': 
+			switch(tail->dir){ 
 			case UP:
 				tail->dir = RIGHT;
 				break;
@@ -434,11 +403,11 @@ void move_snake(Snake *snake){
 				tail->dir = UP;
 				break;
 			default:
-				assert(0); // This should never happen
+				assert(0); 
 			}
 			break;
-		case '\\': // Next body segment is turn type 2
-			switch(tail->dir){ // New direction depends on old one
+		case '\\': 
+			switch(tail->dir){ 
 			case UP:
 				tail->dir = LEFT;
 				break;
@@ -452,31 +421,29 @@ void move_snake(Snake *snake){
 				tail->dir = DOWN;
 				break;
 			default:
-				assert(0); // This should never happen
+				assert(0); 
 			}
 			break;
 		default:
-			assert(0); // This should never happen
+			assert(0); 
 		}
 	}
 }
 
-// A function to randomly generate food on playfield
+
 void gen_food(){
-	// Food_cnt shall not exceed max_food. Division to determine max_food should
-	// round up, but I just add one since FOOD_RARITY is assumed to be big enough
-	// for this to never be really important.
+	
 	static const int max_food = (width * height) / FOOD_RARITY + 1;
 	int row, col;
 
 	if(food_cnt <= max_food){
 		row = rand() % height;
 		col = rand() % width;
-		if(playfield[row][col] == ' '){ // If generated position empty
-			playfield[row][col] = '@'; // Put food there
+		if(playfield[row][col] == ' '){ 
+			playfield[row][col] = '@'; 
 			food_cnt++;
 		} else {
-			gen_food(); // Else try again
+			gen_food(); 
 		}
 	}
 }
@@ -499,7 +466,7 @@ int main(void){
 	signal(SIGINT, sighandler);
 	srand(time(NULL));
 
-	// These are needed for redraw timing
+	
 	struct timespec time_start, time_now;
 	long long time_delta;
 
@@ -518,8 +485,7 @@ int main(void){
 	while(run){
 		snake_moved = process_key(&snake0);
 
-		// This section ensures that redraw occurs on time. Billion because
-		// nanoseconds are used.
+		
 		clock_gettime(CLOCK_REALTIME, &time_now);
 		time_delta = ((time_now.tv_sec - time_start.tv_sec) * BILLION +
 		              (time_now.tv_nsec - time_start.tv_nsec));
